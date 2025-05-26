@@ -1,10 +1,3 @@
-# Created by https://www.toptal.com/developers/gitignore/api/go
-# Edit at https://www.toptal.com/developers/gitignore?templates=go
-
-### Go ###
-# If you prefer the allow list template instead of the deny list, see community template:
-# https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
-#
 # Binaries for programs and plugins
 *.exe
 *.exe~
@@ -18,8 +11,7 @@
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
-# Dependency directories (remove the comment below to include it)
-# vendor/
+vendor/
 
 # Go workspace file
 go.work
@@ -27,3 +19,5 @@ go.work
 # End of https://www.toptal.com/developers/gitignore/api/go
 
 links_*
+
+./scraping_results
