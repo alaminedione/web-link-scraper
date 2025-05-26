@@ -20,7 +20,27 @@ Assurez-vous d'avoir Go installé sur votre machine.
 
 ### Exécution
 
-Pour exécuter le scraper, utilisez la commande suivante dans votre terminal :
+#### Build
+
+Pour compiler l'exécutable, utilisez la commande suivante :
+
+```bash
+go build -o get-links main.go
+```
+
+Cela créera un exécutable nommé `get-links` (ou `get-links.exe` sur Windows) dans le répertoire courant.
+
+#### Lancer l'exécutable
+
+Une fois compilé, vous pouvez exécuter l'outil directement :
+
+```bash
+./get-links <URL> [profondeur_max] [dossier_sortie]
+```
+
+#### Exécution directe (sans compilation)
+
+Pour exécuter le scraper sans le compiler au préalable, utilisez la commande suivante :
 
 ```bash
 go run main.go <URL> [profondeur_max] [dossier_sortie]

@@ -468,8 +468,8 @@ func (ls *LinkScraper) PrintDetailedStats() {
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Usage: go run scraper.go <URL> [profondeur_max] [dossier_sortie]")
-		fmt.Println("Exemple: go run scraper.go https://example.com 2 ./results")
+		fmt.Println("Usage: go run get-links <URL> [profondeur_max] [dossier_sortie]")
+		fmt.Println("Exemple: go run get-links https://example.com 2 ./results")
 		fmt.Println("Paramètres:")
 		fmt.Println("  URL: L'URL du site à scraper")
 		fmt.Println("  profondeur_max: Profondeur maximale du scraping récursif (défaut: 1)")
