@@ -1,9 +1,12 @@
 package main
 
 import (
+	"compress/flate"
+	"compress/gzip"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -122,7 +125,7 @@ func (ls *LinkScraper) ScrapeLinksRecursive(targetURL string, depth int) {
 
 	fmt.Printf("🔍 [Profondeur %d] Scraping: %s\n", depth, targetURL)
 
-	err := ls.scrapePage(targetURL, depth)
+	newInternalLinks, err := ls.scrapePage(targetURL, depth)
 	if err != nil {
 		ls.addError(fmt.Sprintf("Erreur sur %s: %v", targetURL, err))
 		return
@@ -130,29 +133,24 @@ func (ls *LinkScraper) ScrapeLinksRecursive(targetURL string, depth int) {
 
 	// Si on n'a pas atteint la profondeur maximale, continuer avec les liens internes
 	if depth < ls.maxDepth {
-		ls.mutex.RLock()
-		currentInternalLinks := make([]string, len(ls.internalLinks))
-		copy(currentInternalLinks, ls.internalLinks)
-		ls.mutex.RUnlock()
-
-		// Scraper récursivement les liens internes trouvés à cette profondeur
-		for _, link := range currentInternalLinks {
+		// Scraper récursivement les liens internes trouvés sur cette page
+		for _, link := range newInternalLinks {
 			ls.mutex.RLock()
 			alreadyVisited := ls.visitedURL[link]
 			ls.mutex.RUnlock()
 
-			if !alreadyVisited && ls.isInternalLink(link) {
+			if !alreadyVisited { // Pas besoin de vérifier isInternalLink ici, car newInternalLinks ne contient que des liens internes
 				ls.ScrapeLinksRecursive(link, depth+1)
 			}
 		}
 	}
 }
 
-func (ls *LinkScraper) scrapePage(targetURL string, depth int) error {
+func (ls *LinkScraper) scrapePage(targetURL string, depth int) ([]string, error) {
 	// Créer la requête avec des headers réalistes
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la création de la requête: %v", err)
+		return nil, fmt.Errorf("erreur lors de la création de la requête: %v", err)
 	}
 
 	// Headers réalistes pour éviter les blocages
@@ -170,33 +168,62 @@ func (ls *LinkScraper) scrapePage(targetURL string, depth int) error {
 	// Faire la requête HTTP
 	resp, err := ls.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("erreur lors de la requête: %v", err)
+		return nil, fmt.Errorf("erreur lors de la requête: %v", err)
 	}
 	defer resp.Body.Close()
 
+	var reader io.Reader
+	switch resp.Header.Get("Content-Encoding") {
+	case "gzip":
+		gzReader, err := gzip.NewReader(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("erreur lors de la création du lecteur gzip: %v", err)
+		}
+		defer gzReader.Close()
+		reader = gzReader
+	case "deflate":
+		flReader := flate.NewReader(resp.Body)
+		defer flReader.Close()
+		reader = flReader
+	default:
+		reader = resp.Body
+	}
+
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("code de statut HTTP: %d", resp.StatusCode)
+		return nil, fmt.Errorf("code de statut HTTP: %d", resp.StatusCode)
 	}
 
 	// Vérifier le Content-Type
 	contentType := resp.Header.Get("Content-Type")
 	if !strings.Contains(strings.ToLower(contentType), "text/html") {
-		return fmt.Errorf("contenu non-HTML détecté: %s", contentType)
+		return nil, fmt.Errorf("contenu non-HTML détecté: %s", contentType)
 	}
 
 	// Parser le HTML
-	doc, err := goquery.NewDocumentFromReader(resp.Body)
+	doc, err := goquery.NewDocumentFromReader(reader)
 	if err != nil {
-		return fmt.Errorf("erreur lors du parsing HTML: %v", err)
+		return nil, fmt.Errorf("erreur lors du parsing HTML: %v", err)
 	}
 
 	fmt.Printf("✅ Page chargée avec succès: %s\n", targetURL)
 
+	// Sauvegarder le contenu HTML pour inspection
+	// htmlContent, _ := doc.Html()
+	// tempFileName := fmt.Sprintf("temp_html_%s.html", strings.ReplaceAll(ls.baseURL.Host, ".", "_"))
+	// os.WriteFile(tempFileName, []byte(htmlContent), 0644)
+	// fmt.Printf("📝 Contenu HTML sauvegardé dans: %s pour débogage\n", tempFileName)
+
 	// Extraire tous les liens <a href="">
 	linkCount := 0
+	newInternalLinks := []string{}
+
+	// Extraire tous les liens <a href="">
+	// foundALinks := 0
 	doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
+		// foundALinks++
 		href, exists := s.Attr("href")
 		if !exists {
+			// fmt.Printf("⚠️  Lien <a> sans href trouvé\n")
 			return
 		}
 
@@ -205,13 +232,43 @@ func (ls *LinkScraper) scrapePage(targetURL string, depth int) error {
 		if cleanURL != "" {
 			ls.addLink(cleanURL)
 			linkCount++
+			if ls.isInternalLink(cleanURL) {
+				newInternalLinks = append(newInternalLinks, cleanURL)
+			}
 		}
 	})
 
 	// Extraire aussi les liens dans d'autres éléments si nécessaire
-	doc.Find("link[href]").Each(func(i int, s *goquery.Selection) {
+	// fmt.Printf("🔍 Recherche de liens <a>...\n")
+	doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
+		// foundALinks++
 		href, exists := s.Attr("href")
 		if !exists {
+			// fmt.Printf("⚠️  Lien <a> sans href trouvé\n")
+			return
+		}
+
+		// Nettoyer et normaliser l'URL
+		cleanURL := ls.normalizeURL(href, targetURL)
+		if cleanURL != "" {
+			ls.addLink(cleanURL)
+			linkCount++
+			if ls.isInternalLink(cleanURL) {
+				newInternalLinks = append(newInternalLinks, cleanURL)
+			}
+		}
+	})
+
+	// fmt.Printf("📊 %d liens <a> trouvés sur cette page\n", foundALinks)
+
+	// Extraire aussi les liens dans d'autres éléments si nécessaire
+	// foundLinkElements := 0
+	// fmt.Printf("🔍 Recherche de liens <link>...\n")
+	doc.Find("link[href]").Each(func(i int, s *goquery.Selection) {
+		// foundLinkElements++
+		href, exists := s.Attr("href")
+		if !exists {
+			// fmt.Printf("⚠️  Élément <link> sans href trouvé\n")
 			return
 		}
 
@@ -222,12 +279,16 @@ func (ls *LinkScraper) scrapePage(targetURL string, depth int) error {
 			if cleanURL != "" {
 				ls.addLink(cleanURL)
 				linkCount++
+				if ls.isInternalLink(cleanURL) {
+					newInternalLinks = append(newInternalLinks, cleanURL)
+				}
 			}
 		}
 	})
+	// fmt.Printf("📊 %d éléments <link> trouvés sur cette page\n", foundLinkElements)
 
-	fmt.Printf("📊 %d liens trouvés sur cette page\n", linkCount)
-	return nil
+	// fmt.Printf("📊 Total de %d liens ajoutés sur cette page\n", linkCount)
+	return newInternalLinks, nil
 }
 
 func (ls *LinkScraper) addLink(link string) {
@@ -246,8 +307,10 @@ func (ls *LinkScraper) addLink(link string) {
 	// Classer le lien
 	if ls.isInternalLink(link) {
 		ls.internalLinks = append(ls.internalLinks, link)
+		// fmt.Printf("🔗 Ajouté lien interne: %s\n", link)
 	} else {
 		ls.externalLinks = append(ls.externalLinks, link)
+		// fmt.Printf("🔗 Ajouté lien externe: %s\n", link)
 	}
 }
 
@@ -318,9 +381,10 @@ func (ls *LinkScraper) normalizeURL(href, baseURL string) string {
 	finalURL := resolved.String()
 
 	// Debug pour voir les transformations
-	if href != finalURL {
-		fmt.Printf("🔄 Transformation: %s -> %s\n", href, finalURL)
-	}
+	// Debug pour voir les transformations
+	// if href != finalURL {
+	// 	fmt.Printf("🔄 Transformation: %s -> %s\n", href, finalURL)
+	// }
 
 	return finalURL
 }

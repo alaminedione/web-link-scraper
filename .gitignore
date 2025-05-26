@@ -20,4 +20,4 @@ go.work
 
 links_*
 
-./scraping_results
+scraping_results/
