@@ -70,6 +70,28 @@ Scrape `https://example.com` up to a depth of `2` and save the results to the `.
 go run main.go https://example.com 2 ./my_results
 ```
 
+### Performance Example
+
+To demonstrate the tool's speed, here are the statistics from a recent run on `https://go.dev/`:
+
+```
+./get-links https://go.dev/
+==================================================
+📊 DETAILED STATISTICS
+==================================================
+🌐 Website: https://go.dev/
+⏱️  Execution Time: 32.569160234s
+📄 Pages Visited: 39
+🔗 Total Links: 8158
+🏠 Internal Links: 7170
+🌍 External Links: 988
+📊 Max Depth Reached: 1
+❌ Errors Encountered: 0
+==================================================
+```
+These figures clearly highlight the **efficiency** ⚡, **speed** ⏱️, **reliability** ✅, and the truly **impressive** capability of the `Get Links` tool in crawling and analyzing even **complex websites**. Despite operating at **minimal depth**, it was able to visit **39 pages**, process over **8,000 links**, and distinguish between **internal** and **external URLs**—all within just **32 seconds** 🤯 and with zero errors encountered. This demonstrates the tool’s **robust capability** to handle large-scale link extraction tasks with impressive performance.
+
+
 ## Project Structure
 
 - `main.go`: Contains the main scraper logic, including data structures, scraping functions, URL normalization, and result handling.
