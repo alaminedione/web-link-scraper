@@ -100,3 +100,8 @@ These figures clearly highlight the **efficiency** ⚡, **speed** ⏱️, **reli
 ## Dependencies
 
 - `github.com/PuerkitoBio/goquery`: For HTML parsing and element selection.
+
+
+## Contributing
+
+Contributions are welcome!
