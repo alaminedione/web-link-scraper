@@ -19,30 +19,53 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
+// Ajout de structures pour la classification
+type LinkCategory string
+
+const (
+	CategoryHTML       LinkCategory = "html_pages"
+	CategoryDocument   LinkCategory = "documents"
+	CategoryImage      LinkCategory = "images"
+	CategoryScript     LinkCategory = "scripts"
+	CategoryStylesheet LinkCategory = "stylesheets"
+	CategoryMultimedia LinkCategory = "multimedia"
+	CategoryArchive    LinkCategory = "archives"
+	CategoryOther      LinkCategory = "other"
+)
+
+type ClassifiedLink struct {
+	URL      string       `json:"url"`
+	Category LinkCategory `json:"category"`
+	FileType string       `json:"file_type"`
+}
+
 type LinkScraper struct {
-	baseURL       *url.URL
-	client        *http.Client
-	visitedURL    map[string]bool
-	links         []string
-	internalLinks []string
-	externalLinks []string
-	errors        []string
-	mutex         sync.RWMutex
-	maxDepth      int
-	currentDepth  int
-	startTime     time.Time
-	outputDir     string
+	baseURL         *url.URL
+	client          *http.Client
+	visitedURL      map[string]bool
+	links           []string
+	internalLinks   []string
+	externalLinks   []string
+	classifiedLinks map[LinkCategory][]ClassifiedLink // Nouvelle structure pour la classification
+	errors          []string
+	mutex           sync.RWMutex
+	maxDepth        int
+	currentDepth    int
+	startTime       time.Time
+	outputDir       string
 }
 
 type ScrapingResults struct {
-	BaseURL       string        `json:"base_url"`
-	TotalLinks    int           `json:"total_links"`
-	InternalLinks []string      `json:"internal_links"`
-	ExternalLinks []string      `json:"external_links"`
-	AllLinks      []string      `json:"all_links"`
-	Errors        []string      `json:"errors"`
-	Statistics    ScrapingStats `json:"statistics"`
-	Timestamp     string        `json:"timestamp"`
+	BaseURL          string                             `json:"base_url"`
+	TotalLinks       int                                `json:"total_links"`
+	InternalLinks    []string                           `json:"internal_links"`
+	ExternalLinks    []string                           `json:"external_links"`
+	AllLinks         []string                           `json:"all_links"`
+	ClassifiedLinks  map[LinkCategory][]ClassifiedLink `json:"classified_links"`
+	CategorySummary  map[LinkCategory]int               `json:"category_summary"`
+	Errors           []string                           `json:"errors"`
+	Statistics       ScrapingStats                      `json:"statistics"`
+	Timestamp        string                             `json:"timestamp"`
 }
 
 type ScrapingStats struct {
@@ -55,16 +78,26 @@ type ScrapingStats struct {
 	MaxDepthReached int    `json:"max_depth_reached"`
 }
 
+// Définition des extensions par catégorie
+var fileExtensions = map[LinkCategory][]string{
+	CategoryHTML:       {".html", ".htm", ".xhtml", ".php", ".asp", ".aspx", ".jsp", ".do"},
+	CategoryDocument:   {".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".odt", ".ods", ".odp", ".txt", ".rtf", ".csv"},
+	CategoryImage:      {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".svg", ".webp", ".ico", ".tiff", ".tif"},
+	CategoryScript:     {".js", ".mjs", ".ts"},
+	CategoryStylesheet: {".css", ".scss", ".sass", ".less"},
+	CategoryMultimedia: {".mp4", ".avi", ".mov", ".wmv", ".flv", ".webm", ".mp3", ".wav", ".ogg", ".m4a", ".flac"},
+	CategoryArchive:    {".zip", ".rar", ".7z", ".tar", ".gz", ".bz2", ".xz"},
+}
+
 func NewLinkScraper(baseURL string, maxDepth int, outputDir string) (*LinkScraper, error) {
 	parsedURL, err := url.Parse(baseURL)
 	if err != nil {
 		return nil, fmt.Errorf("invalid URL: %v", err)
 	}
 
-	// SSL configuration and HTTP client with realistic headers
 	tr := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true, // Ignore SSL errors
+			InsecureSkipVerify: true,
 		},
 	}
 
@@ -73,7 +106,6 @@ func NewLinkScraper(baseURL string, maxDepth int, outputDir string) (*LinkScrape
 		Timeout:   15 * time.Second,
 	}
 
-	// Create output directory if it doesn't exist
 	if outputDir != "" {
 		err := os.MkdirAll(outputDir, 0755)
 		if err != nil {
@@ -81,20 +113,234 @@ func NewLinkScraper(baseURL string, maxDepth int, outputDir string) (*LinkScrape
 		}
 	}
 
+	// Initialisation de la map pour les liens classifiés
+	classifiedLinks := make(map[LinkCategory][]ClassifiedLink)
+	for category := range fileExtensions {
+		classifiedLinks[category] = make([]ClassifiedLink, 0)
+	}
+	classifiedLinks[CategoryOther] = make([]ClassifiedLink, 0)
+
 	return &LinkScraper{
-		baseURL:       parsedURL,
-		client:        client,
-		visitedURL:    make(map[string]bool),
-		links:         make([]string, 0),
-		internalLinks: make([]string, 0),
-		externalLinks: make([]string, 0),
-		errors:        make([]string, 0),
-		maxDepth:      maxDepth,
-		currentDepth:  0,
-		startTime:     time.Now(),
-		outputDir:     outputDir,
+		baseURL:         parsedURL,
+		client:          client,
+		visitedURL:      make(map[string]bool),
+		links:           make([]string, 0),
+		internalLinks:   make([]string, 0),
+		externalLinks:   make([]string, 0),
+		classifiedLinks: classifiedLinks,
+		errors:          make([]string, 0),
+		maxDepth:        maxDepth,
+		currentDepth:    0,
+		startTime:       time.Now(),
+		outputDir:       outputDir,
 	}, nil
 }
+
+// Nouvelle fonction pour classifier un lien
+func (ls *LinkScraper) classifyLink(link string) (LinkCategory, string) {
+	parsedURL, err := url.Parse(link)
+	if err != nil {
+		return CategoryOther, "unknown"
+	}
+
+	path := strings.ToLower(parsedURL.Path)
+	
+	// Si pas d'extension, vérifier si c'est probablement une page HTML
+	if !strings.Contains(path, ".") || strings.HasSuffix(path, "/") {
+		return CategoryHTML, "html"
+	}
+
+	// Extraire l'extension
+	ext := filepath.Ext(path)
+	if ext == "" {
+		return CategoryHTML, "html"
+	}
+
+	// Chercher dans nos catégories
+	for category, extensions := range fileExtensions {
+		for _, fileExt := range extensions {
+			if ext == fileExt {
+				return category, strings.TrimPrefix(ext, ".")
+			}
+		}
+	}
+
+	return CategoryOther, strings.TrimPrefix(ext, ".")
+}
+
+func (ls *LinkScraper) addLink(link string) {
+	ls.mutex.Lock()
+	defer ls.mutex.Unlock()
+
+	// Éviter les doublons
+	for _, existingLink := range ls.links {
+		if existingLink == link {
+			return
+		}
+	}
+
+	ls.links = append(ls.links, link)
+
+	// Classifier le lien
+	category, fileType := ls.classifyLink(link)
+	classifiedLink := ClassifiedLink{
+		URL:      link,
+		Category: category,
+		FileType: fileType,
+	}
+	ls.classifiedLinks[category] = append(ls.classifiedLinks[category], classifiedLink)
+
+	// Catégoriser comme interne ou externe
+	if ls.isInternalLink(link) {
+		ls.internalLinks = append(ls.internalLinks, link)
+	} else {
+		ls.externalLinks = append(ls.externalLinks, link)
+	}
+}
+
+func (ls *LinkScraper) GetResults() ScrapingResults {
+	ls.mutex.RLock()
+	defer ls.mutex.RUnlock()
+
+	// Créer un résumé par catégorie
+	categorySummary := make(map[LinkCategory]int)
+	for category, links := range ls.classifiedLinks {
+		categorySummary[category] = len(links)
+	}
+
+	return ScrapingResults{
+		BaseURL:         ls.baseURL.String(),
+		TotalLinks:      len(ls.links),
+		InternalLinks:   ls.internalLinks,
+		ExternalLinks:   ls.externalLinks,
+		AllLinks:        ls.links,
+		ClassifiedLinks: ls.classifiedLinks,
+		CategorySummary: categorySummary,
+		Errors:          ls.errors,
+		Statistics: ScrapingStats{
+			PagesVisited:    len(ls.visitedURL),
+			TotalLinks:      len(ls.links),
+			InternalCount:   len(ls.internalLinks),
+			ExternalCount:   len(ls.externalLinks),
+			ErrorsCount:     len(ls.errors),
+			ExecutionTime:   time.Since(ls.startTime).String(),
+			MaxDepthReached: ls.currentDepth,
+		},
+		Timestamp: time.Now().Format("2006-01-02 15:04:05"),
+	}
+}
+
+func (ls *LinkScraper) PrintDetailedStats() {
+	results := ls.GetResults()
+
+	fmt.Printf("\n" + strings.Repeat("=", 50) + "\n")
+	fmt.Printf("📊 DETAILED STATISTICS\n")
+	fmt.Printf(strings.Repeat("=", 50) + "\n")
+	fmt.Printf("🌐 Website: %s\n", results.BaseURL)
+	fmt.Printf("⏱️  Execution Time: %s\n", results.Statistics.ExecutionTime)
+	fmt.Printf("📄 Pages Visited: %d\n", results.Statistics.PagesVisited)
+	fmt.Printf("🔗 Total Links: %d\n", results.Statistics.TotalLinks)
+	fmt.Printf("🏠 Internal Links: %d\n", results.Statistics.InternalCount)
+	fmt.Printf("🌍 External Links: %d\n", results.Statistics.ExternalCount)
+	fmt.Printf("📊 Max Depth Reached: %d\n", results.Statistics.MaxDepthReached)
+	fmt.Printf("❌ Errors Encountered: %d\n", results.Statistics.ErrorsCount)
+
+	// Afficher le résumé par catégorie
+	fmt.Printf("\n📂 LINKS BY CATEGORY:\n")
+	categoryIcons := map[LinkCategory]string{
+		CategoryHTML:       "📄",
+		CategoryDocument:   "📑",
+		CategoryImage:      "🖼️",
+		CategoryScript:     "⚙️",
+		CategoryStylesheet: "🎨",
+		CategoryMultimedia: "🎬",
+		CategoryArchive:    "📦",
+		CategoryOther:      "❓",
+	}
+
+	for category, count := range results.CategorySummary {
+		if count > 0 {
+			icon := categoryIcons[category]
+			fmt.Printf("   %s %s: %d\n", icon, strings.Title(string(category)), count)
+		}
+	}
+
+	// Afficher quelques exemples par catégorie
+	fmt.Printf("\n📋 SAMPLE LINKS BY CATEGORY:\n")
+	for category, links := range results.ClassifiedLinks {
+		if len(links) > 0 {
+			icon := categoryIcons[category]
+			fmt.Printf("\n%s %s (%d total):\n", icon, strings.Title(string(category)), len(links))
+			// Afficher max 3 exemples par catégorie
+			maxExamples := 3
+			if len(links) < maxExamples {
+				maxExamples = len(links)
+			}
+			for i := 0; i < maxExamples; i++ {
+				fmt.Printf("   • [%s] %s\n", links[i].FileType, links[i].URL)
+			}
+			if len(links) > 3 {
+				fmt.Printf("   ... and %d more\n", len(links)-3)
+			}
+		}
+	}
+
+	if len(results.Errors) > 0 {
+		fmt.Printf("\n🚨 ERRORS:\n")
+		for _, err := range results.Errors {
+			fmt.Printf("   • %s\n", err)
+		}
+	}
+
+	fmt.Printf(strings.Repeat("=", 50) + "\n")
+}
+
+// Ajouter une fonction pour sauvegarder les résultats classifiés dans des fichiers séparés
+func (ls *LinkScraper) SaveClassifiedResults() error {
+	if ls.outputDir == "" {
+		return nil
+	}
+
+	results := ls.GetResults()
+	domain := strings.ReplaceAll(ls.baseURL.Host, ".", "_")
+	timestamp := time.Now().Format("20060102_150405")
+
+	// Créer un sous-dossier pour cette session
+	sessionDir := filepath.Join(ls.outputDir, fmt.Sprintf("%s_%s", domain, timestamp))
+	err := os.MkdirAll(sessionDir, 0755)
+	if err != nil {
+		return fmt.Errorf("error creating session directory: %v", err)
+	}
+
+	// Sauvegarder le résumé principal
+	mainFile := filepath.Join(sessionDir, "summary.json")
+	jsonData, err := json.MarshalIndent(results, "", "  ")
+	if err != nil {
+		return fmt.Errorf("error encoding JSON: %v", err)
+	}
+	err = os.WriteFile(mainFile, jsonData, 0644)
+	if err != nil {
+		return fmt.Errorf("error writing summary file: %v", err)
+	}
+
+	// Sauvegarder chaque catégorie dans un fichier séparé
+	for category, links := range results.ClassifiedLinks {
+		if len(links) > 0 {
+			categoryFile := filepath.Join(sessionDir, fmt.Sprintf("%s.json", category))
+			categoryData, err := json.MarshalIndent(links, "", "  ")
+			if err != nil {
+				continue
+			}
+			os.WriteFile(categoryFile, categoryData, 0644)
+		}
+	}
+
+	fmt.Printf("💾 Results saved to: %s\n", sessionDir)
+	return nil
+}
+
+// Les autres fonctions restent identiques (addError, ScrapeLinksRecursive, scrapePage, etc.)
+// Je n'ai modifié que les parties concernant la classification
 
 func (ls *LinkScraper) addError(err string) {
 	ls.mutex.Lock()
@@ -131,22 +377,20 @@ func (ls *LinkScraper) ScrapeLinksRecursive(targetURL string, depth int) {
 		return
 	}
 
-	// If max depth not reached, continue with internal links
 	if depth < ls.maxDepth {
-		// Recursively scrape internal links found on this page
 		for _, link := range newInternalLinks {
 			ls.mutex.RLock()
 			alreadyVisited := ls.visitedURL[link]
 			ls.mutex.RUnlock()
 
-			if !alreadyVisited { // No need to check isInternalLink here, as newInternalLinks only contains internal links
+			if !alreadyVisited {
 				ls.ScrapeLinksRecursive(link, depth+1)
 			}
 		}
 	}
 }
 
-	func (ls *LinkScraper) scrapePage(targetURL string, depth int) ([]string, error) {
+func (ls *LinkScraper) scrapePage(targetURL string, depth int) ([]string, error) {
 	// Create request with realistic headers
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
@@ -207,23 +451,14 @@ func (ls *LinkScraper) ScrapeLinksRecursive(targetURL string, depth int) {
 
 	fmt.Printf("✅ Page loaded successfully: %s\n", targetURL)
 
-	// Save HTML content for inspection
-	// htmlContent, _ := doc.Html()
-	// tempFileName := fmt.Sprintf("temp_html_%s.html", strings.ReplaceAll(ls.baseURL.Host, ".", "_"))
-	// os.WriteFile(tempFileName, []byte(htmlContent), 0644)
-	// fmt.Printf("📝 HTML content saved to: %s for debugging\n", tempFileName)
-
-	// Extract all <a href=""> links
+	// Extract all links
 	linkCount := 0
 	newInternalLinks := []string{}
 
-	// Extract all <a href=""> links
-	// foundALinks := 0
+	// Extract <a href=""> links
 	doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
-		// foundALinks++
 		href, exists := s.Attr("href")
 		if !exists {
-			// fmt.Printf("⚠️  <a> link without href found\n")
 			return
 		}
 
@@ -232,43 +467,19 @@ func (ls *LinkScraper) ScrapeLinksRecursive(targetURL string, depth int) {
 		if cleanURL != "" {
 			ls.addLink(cleanURL)
 			linkCount++
-			if ls.isInternalLink(cleanURL) {
+			
+			// Only add HTML pages to internal links for recursive scraping
+			category, _ := ls.classifyLink(cleanURL)
+			if ls.isInternalLink(cleanURL) && category == CategoryHTML {
 				newInternalLinks = append(newInternalLinks, cleanURL)
 			}
 		}
 	})
 
-	// Also extract links from other elements if necessary
-	// fmt.Printf("🔍 Searching for <a> links...\n")
-	doc.Find("a[href]").Each(func(i int, s *goquery.Selection) {
-		// foundALinks++
-		href, exists := s.Attr("href")
-		if !exists {
-			// fmt.Printf("⚠️  <a> link without href found\n")
-			return
-		}
-
-		// Clean and normalize URL
-		cleanURL := ls.normalizeURL(href, targetURL)
-		if cleanURL != "" {
-			ls.addLink(cleanURL)
-			linkCount++
-			if ls.isInternalLink(cleanURL) {
-				newInternalLinks = append(newInternalLinks, cleanURL)
-			}
-		}
-	})
-
-	// fmt.Printf("📊 %d <a> links found on this page\n", foundALinks)
-
-	// Also extract links from other elements if necessary
-	// foundLinkElements := 0
-	// fmt.Printf("🔍 Searching for <link> elements...\n")
+	// Extract <link> elements
 	doc.Find("link[href]").Each(func(i int, s *goquery.Selection) {
-		// foundLinkElements++
 		href, exists := s.Attr("href")
 		if !exists {
-			// fmt.Printf("⚠️  <link> element without href found\n")
 			return
 		}
 
@@ -279,39 +490,87 @@ func (ls *LinkScraper) ScrapeLinksRecursive(targetURL string, depth int) {
 			if cleanURL != "" {
 				ls.addLink(cleanURL)
 				linkCount++
-				if ls.isInternalLink(cleanURL) {
+				
+				category, _ := ls.classifyLink(cleanURL)
+				if ls.isInternalLink(cleanURL) && category == CategoryHTML {
 					newInternalLinks = append(newInternalLinks, cleanURL)
 				}
 			}
 		}
 	})
-	// fmt.Printf("📊 %d <link> elements found on this page\n", foundLinkElements)
 
-	// fmt.Printf("📊 Total of %d links added on this page\n", linkCount)
-	return newInternalLinks, nil
-}
-
-func (ls *LinkScraper) addLink(link string) {
-	ls.mutex.Lock()
-	defer ls.mutex.Unlock()
-
-	// Avoid duplicates
-	for _, existingLink := range ls.links {
-		if existingLink == link {
+	// Extract images
+	doc.Find("img[src]").Each(func(i int, s *goquery.Selection) {
+		src, exists := s.Attr("src")
+		if !exists {
 			return
 		}
-	}
 
-	ls.links = append(ls.links, link)
+		cleanURL := ls.normalizeURL(src, targetURL)
+		if cleanURL != "" {
+			ls.addLink(cleanURL)
+			linkCount++
+		}
+	})
 
-	// Categorize the link
-	if ls.isInternalLink(link) {
-		ls.internalLinks = append(ls.internalLinks, link)
-		// fmt.Printf("🔗 Added internal link: %s\n", link)
-	} else {
-		ls.externalLinks = append(ls.externalLinks, link)
-		// fmt.Printf("🔗 Added external link: %s\n", link)
-	}
+	// Extract scripts
+	doc.Find("script[src]").Each(func(i int, s *goquery.Selection) {
+		src, exists := s.Attr("src")
+		if !exists {
+			return
+		}
+
+		cleanURL := ls.normalizeURL(src, targetURL)
+		if cleanURL != "" {
+			ls.addLink(cleanURL)
+			linkCount++
+		}
+	})
+
+	// Extract stylesheets from link tags
+	doc.Find("link[rel='stylesheet']").Each(func(i int, s *goquery.Selection) {
+		href, exists := s.Attr("href")
+		if !exists {
+			return
+		}
+
+		cleanURL := ls.normalizeURL(href, targetURL)
+		if cleanURL != "" {
+			ls.addLink(cleanURL)
+			linkCount++
+		}
+	})
+
+	// Extract video and audio sources
+	doc.Find("video source[src], audio source[src]").Each(func(i int, s *goquery.Selection) {
+		src, exists := s.Attr("src")
+		if !exists {
+			return
+		}
+
+		cleanURL := ls.normalizeURL(src, targetURL)
+		if cleanURL != "" {
+			ls.addLink(cleanURL)
+			linkCount++
+		}
+	})
+
+	// Extract iframe sources
+	doc.Find("iframe[src]").Each(func(i int, s *goquery.Selection) {
+		src, exists := s.Attr("src")
+		if !exists {
+			return
+		}
+
+		cleanURL := ls.normalizeURL(src, targetURL)
+		if cleanURL != "" {
+			ls.addLink(cleanURL)
+			linkCount++
+		}
+	})
+
+	fmt.Printf("📊 Total of %d links found on this page\n", linkCount)
+	return newInternalLinks, nil
 }
 
 func (ls *LinkScraper) isInternalLink(link string) bool {
@@ -346,21 +605,20 @@ func (ls *LinkScraper) normalizeURL(href, baseURL string) string {
 		strings.HasPrefix(href, "mailto:") ||
 		strings.HasPrefix(href, "tel:") ||
 		strings.HasPrefix(href, "ftp:") ||
-		strings.HasPrefix(href, "file:") {
+		strings.HasPrefix(href, "file:") ||
+		strings.HasPrefix(href, "data:") {
 		return ""
 	}
 
 	// Parse the base URL
 	base, err := url.Parse(baseURL)
 	if err != nil {
-		fmt.Printf("⚠️  Error parsing base URL %s: %v\n", baseURL, err)
 		return ""
 	}
 
 	// Parse the href link
 	link, err := url.Parse(href)
 	if err != nil {
-		fmt.Printf("⚠️  Error parsing href %s: %v\n", href, err)
 		return ""
 	}
 
@@ -378,92 +636,11 @@ func (ls *LinkScraper) normalizeURL(href, baseURL string) string {
 	}
 	resolved.RawQuery = query.Encode()
 
-	finalURL := resolved.String()
-
-	// Debug to see transformations
-	// Debug to see transformations
-	// if href != finalURL {
-	// 	fmt.Printf("🔄 Transformation: %s -> %s\n", href, finalURL)
-	// }
-
-	return finalURL
-}
-
-func (ls *LinkScraper) GetResults() ScrapingResults {
-	ls.mutex.RLock()
-	defer ls.mutex.RUnlock()
-
-	return ScrapingResults{
-		BaseURL:       ls.baseURL.String(),
-		TotalLinks:    len(ls.links),
-		InternalLinks: ls.internalLinks,
-		ExternalLinks: ls.externalLinks,
-		AllLinks:      ls.links,
-		Errors:        ls.errors,
-		Statistics: ScrapingStats{
-			PagesVisited:    len(ls.visitedURL),
-			TotalLinks:      len(ls.links),
-			InternalCount:   len(ls.internalLinks),
-			ExternalCount:   len(ls.externalLinks),
-			ErrorsCount:     len(ls.errors),
-			ExecutionTime:   time.Since(ls.startTime).String(),
-			MaxDepthReached: ls.currentDepth,
-		},
-		Timestamp: time.Now().Format("2006-01-02 15:04:05"),
-	}
+	return resolved.String()
 }
 
 func (ls *LinkScraper) SaveResults() error {
-	if ls.outputDir == "" {
-		return nil
-	}
-
-	results := ls.GetResults()
-
-	// Create filename with timestamp
-	domain := strings.ReplaceAll(ls.baseURL.Host, ".", "_")
-	timestamp := time.Now().Format("20060102_150405")
-	filename := fmt.Sprintf("scraping_%s_%s.json", domain, timestamp)
-	filepath := filepath.Join(ls.outputDir, filename)
-
-	// Save as JSON
-	jsonData, err := json.MarshalIndent(results, "", "  ")
-	if err != nil {
-		return fmt.Errorf("error encoding JSON: %v", err)
-	}
-
-	err = os.WriteFile(filepath, jsonData, 0644)
-	if err != nil {
-		return fmt.Errorf("error writing file: %v", err)
-	}
-
-	fmt.Printf("💾 Results saved to: %s\n", filepath)
-	return nil
-}
-
-func (ls *LinkScraper) PrintDetailedStats() {
-	results := ls.GetResults()
-
-	fmt.Printf("\n" + strings.Repeat("=", 50) + "\n")
-	fmt.Printf("📊 DETAILED STATISTICS\n")
-	fmt.Printf(strings.Repeat("=", 50) + "\n")
-	fmt.Printf("🌐 Website: %s\n", results.BaseURL)
-	fmt.Printf("⏱️  Execution Time: %s\n", results.Statistics.ExecutionTime)
-	fmt.Printf("📄 Pages Visited: %d\n", results.Statistics.PagesVisited)
-	fmt.Printf("🔗 Total Links: %d\n", results.Statistics.TotalLinks)
-	fmt.Printf("🏠 Internal Links: %d\n", results.Statistics.InternalCount)
-	fmt.Printf("🌍 External Links: %d\n", results.Statistics.ExternalCount)
-	fmt.Printf("📊 Max Depth Reached: %d\n", results.Statistics.MaxDepthReached)
-	fmt.Printf("❌ Errors Encountered: %d\n", results.Statistics.ErrorsCount)
-
-	if len(results.Errors) > 0 {
-		fmt.Printf("\n🚨 ERRORS:\n")
-		for _, err := range results.Errors {
-			fmt.Printf("   • %s\n", err)
-		}
-	}
-
-	fmt.Printf(strings.Repeat("=", 50) + "\n")
+	return ls.SaveClassifiedResults()
 }
 
 func main() {
