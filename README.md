@@ -1,107 +1,258 @@
-# Get Links - An Ultra-Fast Web Link Scraper in Go
+# 🔗 Web Link Scraper
 
-`Get Links` is a web link scraping tool developed in Go. It allows you to recursively explore a website, extract all links (internal and external), and save the results to a JSON file. The tool is designed to be robust, handling redirects, HTTP errors, and various content encodings with ultra-fast performance.
+Un outil puissant et tres rapide pour extraire et classifier tous les liens d'un site web avec une analyse récursive en profondeur.
 
-## Features
+## 📋 Table des matières
 
-- **Recursive Scraping**: Explores internal links up to a specified depth.
-- **Comprehensive Link Extraction**: Identifies and categorizes both internal and external links.
-- **Error Handling**: Manages HTTP errors and HTML parsing issues.
-- **Realistic Headers**: Uses realistic HTTP headers to minimize blocking.
-- **URL Normalization**: Cleans and normalizes URLs to avoid duplicates and tracking parameters.
-- **Detailed Reports**: Provides comprehensive scraping statistics, including the number of pages visited, links found, and execution time.
-- **Result Saving**: Exports results in JSON format for later analysis.
+- [Fonctionnalités](#-fonctionnalités)
+- [Installation](#-installation)
+- [Utilisation](#-utilisation)
+- [Classification des liens](#-classification-des-liens)
+- [Structure des résultats](#-structure-des-résultats)
+- [Exemples](#-exemples)
+- [Configuration avancée](#-configuration-avancée)
+- [Dépannage](#-dépannage)
+- [Contribution](#-contribution)
+- [Licence](#-licence)
 
-## Usage
+## ✨ Fonctionnalités
 
-### Prerequisites
+- 🚀 **Scraping récursif** : Exploration en profondeur des sites web
+- 📂 **Classification automatique** : Organisation des liens par type (HTML, documents, images, etc.)
+- 🔍 **Détection intelligente** : Différenciation entre liens internes et externes
+- 📊 **Statistiques détaillées** : Rapport complet sur les liens trouvés
+- 💾 **Export JSON** : Sauvegarde structurée des résultats
+- 🛡️ **Gestion SSL** : Support des sites HTTPS avec certificats invalides
+- ⚡ **Performance optimisée** : Headers réalistes pour éviter les blocages
+- 🎯 **Filtrage intelligent** : Exclusion automatique des liens non pertinents
 
-Ensure you have Go installed on your machine.
+## 📦 Installation
 
-### Execution
+### Prérequis
 
-#### Build
+- Go 1.16 ou supérieur
+- Git
 
-To compile the executable, use the following command:
+### Étapes d'installation
+
+1. **Cloner le repository**
+```bash
+git clone https://github.com/alaminedione/web-link-scraper.git
+cd web-link-scraper
+```
+
+
+2. **Compiler le projet**
+```bash
+go mod tidy
+go build -o link-scraper main.go
+```
+
+## 🚀 Utilisation
+
+### Syntaxe de base
 
 ```bash
-go build -o get-links main.go
+./link-scraper <URL> [max_depth] [output_folder]
 ```
 
-This will create an executable named `get-links` (or `get-links.exe` on Windows) in the current directory.
+### Paramètres
 
-#### Run the executable
+| Paramètre | Description | Valeur par défaut |
+|-----------|-------------|-------------------|
+| `URL` | L'URL du site web à analyser | *Obligatoire* |
+| `max_depth` | Profondeur maximale de récursion | `1` |
+| `output_folder` | Dossier de sauvegarde des résultats | `./scraping_results` |
 
-Once compiled, you can run the tool directly:
+### Exemples d'utilisation
 
+**Scraping simple (profondeur 1)**
 ```bash
-./get-links <URL> [max_depth] [output_folder]
+./link-scraper https://example.com
 ```
 
-#### Direct execution (without compilation)
-
-To run the scraper without compiling it first, use the following command:
-
+**Scraping en profondeur**
 ```bash
-go run main.go <URL> [max_depth] [output_folder]
+./link-scraper https://example.com 3
 ```
 
-**Parameters:**
-
-- `<URL>`: The URL of the website to scrape (required).
-- `[max_depth]`: The maximum depth for recursive scraping (optional, default: `1`).
-- `[output_folder]`: The folder to save the JSON results (optional, default: `./scraping_results`).
-
-**Understanding Depth (`max_depth`):**
-
-In the context of `Get Links`, "depth" refers to the level of recursion the scraper will reach when exploring a website.
-
-- **Depth 0**: The scraper only visits the initial URL provided. It does not follow any links found on that page.
-- **Depth 1**: The scraper visits the initial URL (depth 0), and then follows all *internal* links found on that page, visiting them (depth 1). It will not follow links found on depth 1 pages.
-- **Depth N**: The scraper continues to follow internal links up to `N` clicks away from the initial URL.
-
-This parameter helps control the scope of the scraping, preventing it from exploring the entire internet and focusing on a relevant portion of the website.
-
-### Example
-
-Scrape `https://example.com` up to a depth of `2` and save the results to the `./my_results` folder:
-
+**Scraping avec dossier de sortie personnalisé**
 ```bash
-go run main.go https://example.com 2 ./my_results
+./link-scraper https://example.com 2 ./mes-resultats
 ```
 
-### Performance Example
+## 📊 Classification des liens
 
-To demonstrate the tool's speed, here are the statistics from a recent run on `https://go.dev/`:
+Le scraper classe automatiquement les liens trouvés dans les catégories suivantes :
+
+### 📄 Pages HTML
+- Extensions : `.html`, `.htm`, `.php`, `.asp`, `.aspx`, `.jsp`
+- Pages web classiques et dynamiques
+
+### 📑 Documents
+- Extensions : `.pdf`, `.doc`, `.docx`, `.xls`, `.xlsx`, `.ppt`, `.pptx`
+- Fichiers bureautiques et documents
+
+### 🖼️ Images
+- Extensions : `.jpg`, `.jpeg`, `.png`, `.gif`, `.svg`, `.webp`
+- Tous types d'images web
+
+### ⚙️ Scripts
+- Extensions : `.js`, `.mjs`, `.ts`
+- Fichiers JavaScript et TypeScript
+
+### 🎨 Feuilles de style
+- Extensions : `.css`, `.scss`, `.sass`, `.less`
+- Fichiers de style
+
+### 🎬 Multimédia
+- Extensions : `.mp4`, `.mp3`, `.avi`, `.mov`, `.wav`
+- Fichiers audio et vidéo
+
+### 📦 Archives
+- Extensions : `.zip`, `.rar`, `.7z`, `.tar`, `.gz`
+- Fichiers compressés
+
+### ❓ Autres
+- Tous les autres types de fichiers
+
+## 📁 Structure des résultats
+
+Les résultats sont sauvegardés dans un dossier horodaté :
 
 ```
-./get-links https://go.dev/
+scraping_results/
+└── example_com_20240127_143022/
+    ├── summary.json          # Résumé complet
+    ├── html_pages.json       # Liste des pages HTML
+    ├── documents.json        # Liste des documents
+    ├── images.json          # Liste des images
+    ├── scripts.json         # Liste des scripts
+    ├── stylesheets.json     # Liste des CSS
+    ├── multimedia.json      # Liste des médias
+    └── archives.json        # Liste des archives
+```
+
+### Format du fichier summary.json
+
+```json
+{
+  "base_url": "https://example.com",
+  "total_links": 150,
+  "internal_links": ["..."],
+  "external_links": ["..."],
+  "classified_links": {
+    "html_pages": [...],
+    "documents": [...],
+    "images": [...]
+  },
+  "category_summary": {
+    "html_pages": 45,
+    "documents": 12,
+    "images": 78
+  },
+  "statistics": {
+    "pages_visited": 25,
+    "execution_time": "1m23s",
+    "max_depth_reached": 3
+  },
+  "timestamp": "2024-01-27 14:30:22"
+}
+```
+
+## 🖥️ Exemples de sortie console
+
+```
+🚀 Starting ultra-fast scraping of: https://example.com
+📊 Maximum depth: 2
+💾 Output directory: ./scraping_results
+--------------------------------------------------
+🔗 Testing connection to https://example.com...
+✅ Connection successful (Status: 200)
+🔍 [Depth 0] Scraping: https://example.com
+✅ Page loaded successfully: https://example.com
+📊 Total of 45 links found on this page
+🔍 [Depth 1] Scraping: https://example.com/about
+✅ Page loaded successfully: https://example.com/about
+📊 Total of 23 links found on this page
+
 ==================================================
 📊 DETAILED STATISTICS
 ==================================================
-🌐 Website: https://go.dev/
-⏱️  Execution Time: 32.569160234s
-📄 Pages Visited: 39
-🔗 Total Links: 8158
-🏠 Internal Links: 7170
-🌍 External Links: 988
-📊 Max Depth Reached: 1
-❌ Errors Encountered: 0
-==================================================
+🌐 Website: https://example.com
+⏱️  Execution Time: 15.2s
+📄 Pages Visited: 15
+🔗 Total Links: 234
+🏠 Internal Links: 189
+🌍 External Links: 45
+📊 Max Depth Reached: 2
+
+📂 LINKS BY CATEGORY:
+   📄 Html_pages: 67
+   📑 Documents: 23
+   🖼️ Images: 89
+   ⚙️ Scripts: 12
+   🎨 Stylesheets: 8
+   🎬 Multimedia: 5
+
+💾 Results saved to: ./scraping_results/example_com_20240127_143022
+✅ Scraping completed successfully!
 ```
-These figures clearly highlight the **efficiency** ⚡, **speed** ⏱️, **reliability** ✅, and the truly **impressive** capability of the `Get Links` tool in crawling and analyzing even **complex websites**. Despite operating at **minimal depth**, it was able to visit **39 pages**, process over **8,000 links**, and distinguish between **internal** and **external URLs**—all within just **32 seconds** 🤯 and with zero errors encountered. This demonstrates the tool’s **robust capability** to handle large-scale link extraction tasks with impressive performance.
+
+## ⚙️ Configuration avancée
+
+### Modification des catégories
+
+Pour ajouter ou modifier les catégories de fichiers, éditez la variable `fileExtensions` dans le code :
+
+```go
+var fileExtensions = map[LinkCategory][]string{
+    CategoryHTML:       {".html", ".htm", ".php"},
+    CategoryDocument:   {".pdf", ".doc", ".docx"},
+    // Ajoutez vos extensions ici
+}
+```
+
+### Paramètres de timeout
+
+Pour modifier le timeout des requêtes HTTP :
+
+```go
+client := &http.Client{
+    Transport: tr,
+    Timeout:   30 * time.Second, // Modifier ici
+}
+```
+
+## 🔧 Dépannage
+
+**Erreur SSL/TLS**
+- Le scraper ignore automatiquement les erreurs de certificat SSL
+- Pour désactiver cette fonctionnalité, modifiez `InsecureSkipVerify: false`
+
+**Timeout sur sites lents**
+- Augmentez la valeur du timeout dans la configuration du client HTTP
+
+**Blocage par le serveur**
+- Le scraper utilise des headers réalistes pour éviter la détection
+- Vous pouvez ajouter un délai entre les requêtes si nécessaire
 
 
-## Project Structure
+## 🤝 Contribution
 
-- `main.go`: Contains the main scraper logic, including data structures, scraping functions, URL normalization, and result handling.
-- `go.mod` and `go.sum`: Go dependency management files.
+Les contributions sont les bienvenues ! Pour contribuer :
 
-## Dependencies
+1. Fork le projet
+2. Créez votre branche (`git checkout -b feature/AmazingFeature`)
+3. Committez vos changements (`git commit -m 'Add some AmazingFeature'`)
+4. Push vers la branche (`git push origin feature/AmazingFeature`)
+5. Ouvrez une Pull Request
 
-- `github.com/PuerkitoBio/goquery`: For HTML parsing and element selection.
+## 📝 Licence
+
+Ce projet est sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus de détails.
 
 
-## Contributing
+---
 
-Contributions are welcome!
+Développé avec ❤️ en Go
