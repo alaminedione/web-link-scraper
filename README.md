@@ -9,7 +9,7 @@ Un outil puissant et tres rapide pour extraire et classifier tous les liens d'un
 - [Utilisation](#-utilisation)
 - [Classification des liens](#-classification-des-liens)
 - [Structure des résultats](#-structure-des-résultats)
-- [Exemples](#-exemples)
+- [Exemples](#-exemples-de-sortie-console)
 - [Configuration avancée](#-configuration-avancée)
 - [Dépannage](#-dépannage)
 - [Contribution](#-contribution)
